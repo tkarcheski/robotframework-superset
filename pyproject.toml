@@ -1,0 +1,70 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "robotframework-superset"
+version = "0.1.0"
+description = "Robot Framework + Apache Superset: extensible listeners and precisely-timestamped event feeds (RF, console/telnet, OpenAI, Ollama)"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.10"
+authors = [{ name = "tkarcheski", email = "tyler.karcheski@gmail.com" }]
+keywords = ["robotframework", "superset", "observability", "listener", "llm", "telemetry"]
+classifiers = [
+    "Framework :: Robot Framework",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Testing",
+]
+dependencies = [
+    "robotframework>=6.0",
+]
+
+[project.optional-dependencies]
+# SQL / Superset-backed sink.
+db = ["sqlalchemy>=2.0", "psycopg2-binary>=2.9"]
+# LLM feeds.
+openai = ["requests>=2.28"]
+ollama = ["requests>=2.28"]
+dev = [
+    "pytest>=7.0",
+    "mypy>=1.8",
+    "ruff>=0.4",
+]
+all = [
+    "robotframework-superset[db,openai,ollama]",
+]
+
+[project.urls]
+Homepage = "https://github.com/tkarcheski/robotframework-superset"
+Repository = "https://github.com/tkarcheski/robotframework-superset"
+Issues = "https://github.com/tkarcheski/robotframework-superset/issues"
+
+# ── Plugin registration ─────────────────────────────────────────────
+# Third parties extend the framework by registering under these entry-point
+# groups; the registry (robotframework_superset.registry) discovers them at
+# runtime. The built-in implementations below are registered the same way,
+# so an external plugin is a first-class citizen.
+[project.entry-points."robotframework_superset.listeners"]
+robot = "robotframework_superset.listeners.robot_listener:RobotFrameworkListener"
+console = "robotframework_superset.listeners.console:ConsoleListener"
+
+[project.entry-points."robotframework_superset.feeds"]
+openai = "robotframework_superset.feeds.openai_feed:OpenAIFeed"
+ollama = "robotframework_superset.feeds.ollama_feed:OllamaFeed"
+
+[project.entry-points."robotframework_superset.sinks"]
+db = "robotframework_superset.sinks.db:DatabaseSink"
+null = "robotframework_superset.sinks.null:NullSink"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/robotframework_superset"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"

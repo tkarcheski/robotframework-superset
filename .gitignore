@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+
+# Tooling caches
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Environment / secrets — never commit real values
+.env
+.env.local
+*.local
+
+# Robot Framework output
+output.xml
+log.html
+report.html
+results/
+
+# Superset / docker local state
+pgdata/
+*.db
+*.sqlite3
