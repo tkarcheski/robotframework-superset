@@ -91,6 +91,13 @@ class BaseListener:
     def end_test(self, data: Any, result: Any) -> None:
         self.on_test_end(data, result)
 
+    def start_keyword(self, data: Any, result: Any) -> None:
+        """RF >= 7 fires keyword boundaries for v3 listeners; RF 6 never calls this."""
+        self.on_keyword_start(data, result)
+
+    def end_keyword(self, data: Any, result: Any) -> None:
+        self.on_keyword_end(data, result)
+
     def log_message(self, message: Any) -> None:
         self.on_log_message(message)
 
@@ -122,6 +129,12 @@ class BaseListener:
 
     def on_test_end(self, data: Any, result: Any) -> None:
         """A test case ended."""
+
+    def on_keyword_start(self, data: Any, result: Any) -> None:
+        """A keyword began (RF >= 7 only)."""
+
+    def on_keyword_end(self, data: Any, result: Any) -> None:
+        """A keyword ended (RF >= 7 only)."""
 
     def on_log_message(self, message: Any) -> None:
         """A ``log`` message was emitted during execution."""
