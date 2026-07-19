@@ -9,10 +9,11 @@ console/telnet traffic, and LLM API calls (OpenAI, Ollama) — as a single
 stream of events, each stamped with **two clocks** (wall-clock and monotonic),
 persist them to a Superset-backed database, and explore them in dashboards.
 
-> Status: **early scaffold.** The core abstractions (event model, listener /
-> feed / sink interfaces, plugin registry) are defined; concrete
-> implementations are tracked as issues under the migration epic. See
-> [the issue tracker](https://github.com/tkarcheski/robotframework-superset/issues).
+> Status: **core implemented.** The event model, plugin registry, RF listener,
+> console/telnet listener, OpenAI and Ollama feeds, and the Superset-backed
+> DB sink are all working and tested. Remaining migration work (Superset infra
+> bootstrap, robot suites, docs, PyPI publish) is tracked as issues under the
+> epic — see [the issue tracker](https://github.com/tkarcheski/robotframework-superset/issues).
 
 ## Why two clocks?
 
@@ -47,18 +48,29 @@ sink **must** persist both. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - **Plugins**: listeners, feeds, and sinks are all discovered via entry points,
   so third parties extend the framework without forking it.
 
-## Quickstart (placeholder)
+## Quickstart
 
 ```bash
-pip install robotframework-superset            # once published to PyPI
+pip install robotframework-superset[db]        # once published to PyPI; today: pip install -e ".[db]"
 
 # Bring up PostgreSQL + Superset locally:
 cp .env.example .env                           # edit credentials
 docker compose -f infra/docker-compose.yml --env-file .env up -d
 
-# Attach the standard listener to a Robot run (once implemented):
+# Attach the standard listener to a Robot run (events to stdout):
 robot --listener robotframework_superset.listeners.robot_listener.RobotFrameworkListener tests/
+
+# Persist events to the database instead (';' separates listener args when
+# a value itself contains ':', e.g. a SQLAlchemy URL):
+robot --listener "robotframework_superset.listeners.robot_listener.RobotFrameworkListener;sink=db;database_url=sqlite:///events.db" tests/
+# ...or with DATABASE_URL set in the environment:
+robot --listener robotframework_superset.listeners.robot_listener.RobotFrameworkListener:sink=db tests/
 ```
+
+Useful listener arguments: `keywords=true` also emits per-keyword events
+(high-volume, RF >= 7), `logs=false` suppresses `robot.log` events, and any
+other `key=value` is forwarded to the sink's constructor (e.g.
+`batch_size=100`).
 
 Full end-to-end usage lands with the concrete implementations — see the epic.
 
