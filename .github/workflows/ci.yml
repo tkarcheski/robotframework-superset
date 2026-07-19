@@ -17,7 +17,9 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install
-        run: pip install -e ".[dev]"
+        # Install every optional backend so mypy and pytest cover the whole
+        # tree — the DB sink imports sqlalchemy and the feeds import requests.
+        run: pip install -e ".[all,dev]"
       - name: Lint
         run: ruff check src tests
       - name: Type check

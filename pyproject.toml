@@ -31,6 +31,9 @@ dev = [
     "pytest>=7.0",
     "mypy>=1.8",
     "ruff>=0.4",
+    # Type stubs for the optional feeds' HTTP client, so `mypy src` is typed
+    # regardless of whether the runner has an ambient (untyped) requests.
+    "types-requests>=2.28",
 ]
 all = [
     "robotframework-superset[db,openai,ollama]",
