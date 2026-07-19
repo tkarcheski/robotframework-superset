@@ -1,4 +1,4 @@
-"""Null and in-memory sinks — useful defaults and test doubles."""
+"""Null, stdout, and in-memory sinks — useful defaults and test doubles."""
 
 from __future__ import annotations
 
@@ -13,6 +13,17 @@ class NullSink(BaseSink):
 
     def emit(self, event: Event) -> None:
         return None
+
+
+class StdoutSink(BaseSink):
+    """Prints each event's one-line dict to stdout.
+
+    The default sink for listeners and feeds when none is supplied, so a
+    freshly-attached producer does something visible without configuration.
+    """
+
+    def emit(self, event: Event) -> None:
+        print(f"[rfs] {event.to_dict()}")
 
 
 class MemorySink(BaseSink):

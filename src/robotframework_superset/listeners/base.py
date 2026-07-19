@@ -22,18 +22,8 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from ..event import Event, EventLevel, monotonic_ns, utc_now
-from ..sink import BaseSink, Sink
-
-
-class _StdoutSink(BaseSink):
-    """Default sink: prints each event's one-line dict to stdout.
-
-    Used when no sink is supplied so a freshly-registered listener does
-    something visible without configuration.
-    """
-
-    def emit(self, event: Event) -> None:  # pragma: no cover - trivial
-        print(f"[rfs] {event.to_dict()}")
+from ..sink import Sink
+from ..sinks.null import StdoutSink
 
 
 class BaseListener:
@@ -47,7 +37,7 @@ class BaseListener:
     ROBOT_LISTENER_API_VERSION = 3
 
     def __init__(self, sink: Optional[Sink] = None, source: str = "robot") -> None:
-        self.sink: Sink = sink or _StdoutSink()
+        self.sink: Sink = sink or StdoutSink()
         self.source = source
         self._suite_depth = 0
 

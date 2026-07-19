@@ -22,12 +22,8 @@ from contextlib import contextmanager
 from typing import Any, Dict, Iterator, Optional
 
 from ..event import Event, EventLevel, monotonic_ns, utc_now
-from ..sink import BaseSink, Sink
-
-
-class _StdoutSink(BaseSink):
-    def emit(self, event: Event) -> None:  # pragma: no cover - trivial
-        print(f"[rfs] {event.to_dict()}")
+from ..sink import Sink
+from ..sinks.null import StdoutSink
 
 
 class BaseFeed:
@@ -39,7 +35,7 @@ class BaseFeed:
     """
 
     def __init__(self, sink: Optional[Sink] = None, source: str = "feed") -> None:
-        self.sink: Sink = sink or _StdoutSink()
+        self.sink: Sink = sink or StdoutSink()
         self.source = source
 
     def emit(

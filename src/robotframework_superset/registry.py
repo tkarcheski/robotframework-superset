@@ -23,12 +23,24 @@ Then::
 
 from __future__ import annotations
 
+from importlib import import_module
 from importlib.metadata import entry_points
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple, Union
 
 _LISTENERS = "robotframework_superset.listeners"
 _FEEDS = "robotframework_superset.feeds"
 _SINKS = "robotframework_superset.sinks"
+
+# Fallback map so the built-in sinks resolve by name even when the package's
+# distribution metadata (and thus its entry points) is unavailable — e.g. a
+# vendored source tree or a submodule checkout that was never pip-installed.
+# Entry points take precedence so an external plugin can shadow a name.
+_BUILTIN_SINKS: Dict[str, str] = {
+    "null": "robotframework_superset.sinks.null:NullSink",
+    "memory": "robotframework_superset.sinks.null:MemorySink",
+    "stdout": "robotframework_superset.sinks.null:StdoutSink",
+    "db": "robotframework_superset.sinks.db:DatabaseSink",
+}
 
 
 def _load(group: str, name: str) -> Any:
@@ -71,3 +83,61 @@ def load_feed(name: str, *args: Any, **kwargs: Any) -> Any:
 def load_sink(name: str, *args: Any, **kwargs: Any) -> Any:
     """Instantiate the sink registered as ``name``."""
     return _load(_SINKS, name)(*args, **kwargs)
+
+
+def resolve_sink(name: str, **kwargs: Any) -> Any:
+    """Instantiate a sink by name: entry points first, then the builtin map.
+
+    This is what listener/feed ``sink=<name>`` arguments go through, so
+    ``--listener ...:sink=db`` works both for pip-installed deployments
+    (entry points) and vendored source trees (builtin fallback).
+
+    Raises:
+        KeyError: unknown name; the message lists every resolvable name.
+    """
+    for ep in entry_points(group=_SINKS):
+        if ep.name == name:
+            return ep.load()(**kwargs)
+    if name in _BUILTIN_SINKS:
+        module_path, _, attr = _BUILTIN_SINKS[name].partition(":")
+        return getattr(import_module(module_path), attr)(**kwargs)
+    available_names = sorted(set(list_plugins(_SINKS)) | set(_BUILTIN_SINKS))
+    raise KeyError(f"No sink '{name}'. Available: {', '.join(available_names)}")
+
+
+def parse_kwargs(args: Tuple[str, ...]) -> Dict[str, Union[str, int, float, bool]]:
+    """Parse Robot Framework listener arguments of the form ``key=value``.
+
+    RF passes everything after each ``:`` in ``--listener Mod:sink=db:batch_size=50``
+    as positional strings; this turns them into a kwargs dict. Only the first
+    ``=`` splits key from value, so URLs and DSNs survive intact. Values are
+    coerced: ``true``/``false`` (case-insensitive) → bool, integer literals →
+    int, float literals → float, everything else stays a string.
+
+    Raises:
+        ValueError: an argument has no ``=`` at all.
+    """
+    parsed: Dict[str, Union[str, int, float, bool]] = {}
+    for arg in args:
+        key, sep, raw = arg.partition("=")
+        if not sep:
+            raise ValueError(f"Listener argument {arg!r} is not of the form key=value")
+        parsed[key] = _coerce(raw)
+    return parsed
+
+
+def _coerce(raw: str) -> Union[str, int, float, bool]:
+    """Coerce a listener-arg string to bool/int/float where unambiguous."""
+    if raw.lower() == "true":
+        return True
+    if raw.lower() == "false":
+        return False
+    try:
+        return int(raw)
+    except ValueError:
+        pass
+    try:
+        return float(raw)
+    except ValueError:
+        pass
+    return raw
