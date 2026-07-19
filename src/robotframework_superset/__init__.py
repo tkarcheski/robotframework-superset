@@ -11,7 +11,7 @@ Public surface:
 
 from __future__ import annotations
 
-from .event import Event, EventLevel, monotonic_ns, utc_now
+from .event import Event, EventLevel, elapsed_ns, monotonic_ns, utc_now
 from .feeds.base import BaseFeed
 from .listeners.base import BaseListener
 from .sink import BaseSink, Sink
@@ -23,6 +23,7 @@ __all__ = [
     "EventLevel",
     "utc_now",
     "monotonic_ns",
+    "elapsed_ns",
     "Sink",
     "BaseSink",
     "BaseListener",

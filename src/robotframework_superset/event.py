@@ -19,6 +19,7 @@ invariant — a sink MUST persist both.
 
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -55,6 +56,16 @@ def monotonic_ns() -> int:
     return time.monotonic_ns()
 
 
+def elapsed_ns(start_ns: int) -> int:
+    """Return nanoseconds elapsed since a ``monotonic_ns()`` start marker.
+
+    The canonical way to compute ``Event.duration_ns``: take a monotonic
+    read before the operation, then ``elapsed_ns(start)`` after. Never derive
+    durations from wall-clock subtraction — wall clocks can step backward.
+    """
+    return time.monotonic_ns() - start_ns
+
+
 @dataclass
 class Event:
     """A single precisely-timestamped observation from a listener or feed.
@@ -84,13 +95,36 @@ class Event:
     duration_ns: int = -1
     payload: Dict[str, Any] = field(default_factory=dict)
 
+    def validate(self) -> None:
+        """Enforce the event contract; raise :class:`ValueError` on violation.
+
+        Checks (the spec every producer and sink relies on):
+        - ``event_type`` and ``source`` are non-empty.
+        - ``wall_clock`` is tz-aware (naive datetimes corrupt cross-machine
+          ordering; UTC is the convention but any explicit offset is legal).
+        - ``payload`` is JSON-serializable, so any sink can persist it.
+        """
+        if not self.event_type:
+            raise ValueError("event_type must be non-empty")
+        if not self.source:
+            raise ValueError("source must be non-empty")
+        if self.wall_clock.tzinfo is None or self.wall_clock.utcoffset() is None:
+            raise ValueError("wall_clock must be tz-aware (got a naive datetime)")
+        try:
+            json.dumps(self.payload)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"payload must be JSON-serializable: {exc}") from exc
+
     def to_dict(self) -> Dict[str, Any]:
         """Return a JSON-serializable representation.
 
+        Validates the event first (see :meth:`validate`) so a malformed
+        payload is caught at the producer, not deep inside a sink.
         ``wall_clock`` is rendered as an ISO-8601 string; ``level`` as its
         string value. Sinks that store columnar data should read the fields
         directly rather than round-tripping through this dict.
         """
+        self.validate()
         return {
             "event_type": self.event_type,
             "source": self.source,
