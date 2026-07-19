@@ -31,12 +31,19 @@ Emitted event types:
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from ..event import EventLevel, elapsed_ns, monotonic_ns
-from ..registry import parse_kwargs, resolve_sink
+from ..registry import coerce_value, parse_kwargs, resolve_sink
 from ..sink import Sink
 from .base import BaseListener
+
+
+def _as_bool(value: Union[bool, str, int, float]) -> bool:
+    """Interpret RF-style toggle values ('true'/'false' strings included)."""
+    if isinstance(value, str):
+        return value.strip().lower() in ("true", "1", "yes", "on")
+    return bool(value)
 
 # RF log levels → EventLevel. FAIL/ERROR both map to ERROR; HTML and SKIP are
 # informational.
@@ -59,20 +66,40 @@ def _status_level(status: str) -> EventLevel:
 class RobotFrameworkListener(BaseListener):
     """Emit a dual-clock event for each RF lifecycle transition.
 
+    Robot Framework >= 5 parses ``key=value`` listener arguments into *named*
+    arguments itself, so ``sink``/``keywords``/``logs`` arrive as keywords
+    (string-valued) and anything else lands in ``**options`` for the sink's
+    constructor. Positional ``key=value`` strings are also accepted for
+    programmatic use and older RF versions.
+
     Args:
-        *args: RF-style ``key=value`` listener arguments (see module docs).
-        sink: Programmatic sink override; takes precedence over ``sink=``.
+        *args: RF-style ``key=value`` argument strings.
+        sink: A :class:`Sink` instance (programmatic) or a registry name.
+        keywords: Emit ``robot.keyword.*`` events (``true``/``false``).
+        logs: Emit ``robot.log`` events (``true``/``false``).
+        **options: Forwarded to the named sink's constructor.
     """
 
-    def __init__(self, *args: str, sink: Optional[Sink] = None) -> None:
-        options = parse_kwargs(tuple(args))
-        self._emit_keywords = bool(options.pop("keywords", False))
-        self._emit_logs = bool(options.pop("logs", True))
-        sink_name = options.pop("sink", "")
-        if sink is None and sink_name:
+    def __init__(
+        self,
+        *args: str,
+        sink: Union[Sink, str, None] = None,
+        keywords: Union[bool, str] = False,
+        logs: Union[bool, str] = True,
+        **options: str,
+    ) -> None:
+        merged: Dict[str, Any] = dict(parse_kwargs(tuple(args)))
+        merged.update({k: coerce_value(v) for k, v in options.items()})
+        self._emit_keywords = _as_bool(merged.pop("keywords", keywords))
+        self._emit_logs = _as_bool(merged.pop("logs", logs))
+        sink_spec = merged.pop("sink", sink)
+        resolved: Optional[Sink]
+        if isinstance(sink_spec, str):
             # Remaining options are the sink's constructor kwargs.
-            sink = resolve_sink(str(sink_name), **options)
-        super().__init__(sink=sink)
+            resolved = resolve_sink(sink_spec, **merged)
+        else:
+            resolved = sink_spec
+        super().__init__(sink=resolved)
         self._run_start_ns = 0
         self._suite_start_ns: List[int] = []
         self._test_start_ns = 0

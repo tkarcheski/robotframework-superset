@@ -122,11 +122,11 @@ def parse_kwargs(args: Tuple[str, ...]) -> Dict[str, Union[str, int, float, bool
         key, sep, raw = arg.partition("=")
         if not sep:
             raise ValueError(f"Listener argument {arg!r} is not of the form key=value")
-        parsed[key] = _coerce(raw)
+        parsed[key] = coerce_value(raw)
     return parsed
 
 
-def _coerce(raw: str) -> Union[str, int, float, bool]:
+def coerce_value(raw: str) -> Union[str, int, float, bool]:
     """Coerce a listener-arg string to bool/int/float where unambiguous."""
     if raw.lower() == "true":
         return True

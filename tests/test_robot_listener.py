@@ -102,6 +102,23 @@ def test_string_args_resolve_sink_via_registry() -> None:
     assert _types(listener.sink.events)[0] == "robot.run.start"
 
 
+def test_named_args_as_rf_passes_them() -> None:
+    # RF >= 5 parses key=value listener args into NAMED arguments: sink and
+    # toggles arrive as strings, unknown keys land in **options for the sink.
+    listener = RobotFrameworkListener(sink="memory", keywords="true")
+    _run_sample_suite(listener)
+    assert isinstance(listener.sink, MemorySink)
+    assert any(t.startswith("robot.keyword.") for t in _types(listener.sink.events))
+
+
+def test_named_sink_options_forwarded(tmp_path: object) -> None:
+    from robotframework_superset.sinks.db import DatabaseSink
+
+    listener = RobotFrameworkListener(sink="db", database_url="sqlite://", batch_size="7")
+    assert isinstance(listener.sink, DatabaseSink)
+    assert listener.sink.batch_size == 7  # string coerced before reaching the sink
+
+
 def test_events_validate_clean() -> None:
     sink = MemorySink()
     _run_sample_suite(RobotFrameworkListener("keywords=true", sink=sink))
