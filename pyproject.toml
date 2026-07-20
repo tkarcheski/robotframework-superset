@@ -29,8 +29,10 @@ openai = ["requests>=2.28"]
 ollama = ["requests>=2.28"]
 dev = [
     "pytest>=7.0",
+    "pytest-cov>=4.1",
     "mypy>=1.8",
     "ruff>=0.4",
+    "sqlalchemy>=2.0",
 ]
 all = [
     "robotframework-superset[db,openai,ollama]",
@@ -68,3 +70,7 @@ strict = true
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+markers = ["integration: requires an external service such as PostgreSQL"]

@@ -2,6 +2,6 @@
 
 from __future__ import annotations
 
-from .null import NullSink
+from .null import MemorySink, NullSink
 
-__all__ = ["NullSink"]
+__all__ = ["MemorySink", "NullSink"]

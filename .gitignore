@@ -12,6 +12,8 @@ venv/
 .mypy_cache/
 .ruff_cache/
 .pytest_cache/
+.coverage
+htmlcov/
 
 # Environment / secrets — never commit real values
 .env

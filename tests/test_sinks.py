@@ -8,7 +8,7 @@ from robotframework_superset.sinks.null import MemorySink, NullSink
 
 
 def _event(i: int) -> Event:
-    return Event(event_type="test", source="unit", message=f"e{i}")
+    return Event(event_type="test.event", source="unit", message=f"e{i}")
 
 
 def test_null_sink_discards() -> None:
