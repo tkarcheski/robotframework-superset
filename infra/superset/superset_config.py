@@ -6,10 +6,11 @@ variables set by docker-compose — no secrets are baked into this file.
 """
 
 import os
+from urllib.parse import quote_plus
 
-_pg_user = os.getenv("POSTGRES_USER", "rfs")
-_pg_pass = os.getenv("POSTGRES_PASSWORD", "changeme")
-_pg_db = os.getenv("POSTGRES_DB", "rfs")
+_pg_user = quote_plus(os.getenv("POSTGRES_USER", "rfs"))
+_pg_pass = quote_plus(os.getenv("POSTGRES_PASSWORD", "changeme"))
+_pg_db = quote_plus(os.getenv("POSTGRES_DB", "rfs"))
 _pg_port = os.getenv("POSTGRES_INTERNAL_PORT", "5432")
 
 # Superset metadata database (its own tables, same PG instance).
@@ -42,8 +43,8 @@ FEATURE_FLAGS = {
     "ENABLE_TEMPLATE_PROCESSING": True,
 }
 
-# Disable CSRF for API-only usage (dashboard bootstrap).
-WTF_CSRF_ENABLED = False
+# Keep browser protections enabled; bootstrap runs inside the Flask app context.
+WTF_CSRF_ENABLED = True
 
 # Allow embedding in iframes.
 SESSION_COOKIE_SAMESITE = "Lax"

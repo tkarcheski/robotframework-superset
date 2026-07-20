@@ -12,9 +12,15 @@ requires-python = ">=3.10"
 authors = [{ name = "tkarcheski", email = "tyler.karcheski@gmail.com" }]
 keywords = ["robotframework", "superset", "observability", "listener", "llm", "telemetry"]
 classifiers = [
+    "Development Status :: 3 - Alpha",
     "Framework :: Robot Framework",
+    "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Topic :: Software Development :: Testing",
 ]
 dependencies = [
@@ -29,8 +35,10 @@ openai = ["requests>=2.28"]
 ollama = ["requests>=2.28"]
 dev = [
     "pytest>=7.0",
+    "pytest-cov>=4.1",
     "mypy>=1.8",
     "ruff>=0.4",
+    "sqlalchemy>=2.0",
 ]
 all = [
     "robotframework-superset[db,openai,ollama]",
@@ -68,3 +76,23 @@ strict = true
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+markers = ["integration: requires an external service such as PostgreSQL"]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers --strict-config"
+
+[tool.coverage.run]
+branch = true
+source = ["robotframework_superset"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "@(abc\\.)?abstractmethod",
+]

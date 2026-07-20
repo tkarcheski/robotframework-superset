@@ -30,6 +30,12 @@ _LISTENERS = "robotframework_superset.listeners"
 _FEEDS = "robotframework_superset.feeds"
 _SINKS = "robotframework_superset.sinks"
 
+PLUGIN_GROUPS = {
+    "listeners": _LISTENERS,
+    "feeds": _FEEDS,
+    "sinks": _SINKS,
+}
+
 
 def _load(group: str, name: str) -> Any:
     """Return the class/factory registered as ``name`` in ``group``.
@@ -46,16 +52,12 @@ def _load(group: str, name: str) -> Any:
 
 def list_plugins(group: str) -> List[str]:
     """Return the names of every plugin registered under ``group``."""
-    return [ep.name for ep in entry_points(group=group)]
+    return sorted({ep.name for ep in entry_points(group=group)})
 
 
 def available() -> Dict[str, List[str]]:
     """Return a mapping of each group to its registered plugin names."""
-    return {
-        "listeners": list_plugins(_LISTENERS),
-        "feeds": list_plugins(_FEEDS),
-        "sinks": list_plugins(_SINKS),
-    }
+    return {name: list_plugins(group) for name, group in PLUGIN_GROUPS.items()}
 
 
 def load_listener(name: str, *args: Any, **kwargs: Any) -> Any:
