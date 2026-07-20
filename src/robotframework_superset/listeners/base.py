@@ -19,6 +19,7 @@ entry-point group (see :mod:`robotframework_superset.registry`).
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Optional
 
 from ..event import Event, EventLevel, monotonic_ns, utc_now
@@ -36,6 +37,41 @@ class _StdoutSink(BaseSink):
         print(f"[rfs] {event.to_dict()}")
 
 
+def parse_listener_arguments(arguments: tuple[str, ...]) -> dict[str, str]:
+    """Parse Robot's positional ``key=value`` listener arguments.
+
+    Robot Framework passes colon-delimited listener arguments to class
+    constructors as positional strings. Keeping parsing in one place gives all
+    built-in and third-party listeners the same convention.
+    """
+    parsed: dict[str, str] = {}
+    for argument in arguments:
+        key, separator, value = argument.partition("=")
+        key = key.strip().replace("-", "_")
+        if not separator or not key:
+            raise ValueError(f"Listener argument must use key=value: {argument!r}")
+        if key in parsed:
+            raise ValueError(f"Duplicate listener argument: {key}")
+        parsed[key] = value.strip()
+    return parsed
+
+
+def resolve_sink(sink: Sink | str | None) -> Sink:
+    """Resolve a sink instance or entry-point name to a :class:`Sink`."""
+    if sink is None or sink == "":
+        return _StdoutSink()
+    if isinstance(sink, str):
+        from ..registry import load_sink
+
+        loaded = load_sink(sink)
+        if not isinstance(loaded, Sink):
+            raise TypeError(f"Sink plugin {sink!r} does not satisfy the Sink protocol")
+        return loaded
+    if not isinstance(sink, Sink):
+        raise TypeError("sink must be a Sink instance or registered sink name")
+    return sink
+
+
 class BaseListener:
     """Abstract base for Robot Framework v3 listeners.
 
@@ -46,8 +82,8 @@ class BaseListener:
 
     ROBOT_LISTENER_API_VERSION = 3
 
-    def __init__(self, sink: Optional[Sink] = None, source: str = "robot") -> None:
-        self.sink: Sink = sink or _StdoutSink()
+    def __init__(self, sink: Optional[Sink | str] = None, source: str = "robot") -> None:
+        self.sink = resolve_sink(sink)
         self.source = source
         self._suite_depth = 0
 
@@ -61,14 +97,16 @@ class BaseListener:
         message: str = "",
         level: EventLevel = EventLevel.INFO,
         duration_ns: int = -1,
+        _wall_clock: datetime | None = None,
+        _monotonic_ns: int | None = None,
         **payload: Any,
-    ) -> None:
+    ) -> Event:
         """Build a dual-clock event and route it to the sink (skip-and-log)."""
         event = Event(
             event_type=event_type,
             source=self.source,
-            wall_clock=utc_now(),
-            monotonic_ns=monotonic_ns(),
+            wall_clock=_wall_clock or utc_now(),
+            monotonic_ns=monotonic_ns() if _monotonic_ns is None else _monotonic_ns,
             level=level,
             message=message,
             duration_ns=duration_ns,
@@ -78,6 +116,7 @@ class BaseListener:
             self.sink.emit(event)
         except Exception as exc:  # noqa: BLE001 - never fail a test on sink error
             print(f"[rfs] WARNING: sink.emit failed ({exc}); event dropped")
+        return event
 
     # ------------------------------------------------------------------
     # RF Listener API v3 — depth tracking + dispatch to template hooks.
@@ -103,6 +142,12 @@ class BaseListener:
 
     def log_message(self, message: Any) -> None:
         self.on_log_message(message)
+
+    def start_keyword(self, data: Any, result: Any) -> None:
+        self.on_keyword_start(data, result)
+
+    def end_keyword(self, data: Any, result: Any) -> None:
+        self.on_keyword_end(data, result)
 
     def close(self) -> None:
         """RF calls this once at the very end of the run."""
@@ -135,3 +180,9 @@ class BaseListener:
 
     def on_log_message(self, message: Any) -> None:
         """A ``log`` message was emitted during execution."""
+
+    def on_keyword_start(self, data: Any, result: Any) -> None:
+        """A keyword began."""
+
+    def on_keyword_end(self, data: Any, result: Any) -> None:
+        """A keyword ended."""

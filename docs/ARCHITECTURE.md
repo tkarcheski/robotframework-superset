@@ -118,7 +118,9 @@ Rules:
 
 Reference sinks:
 - **`DatabaseSink`** — SQLAlchemy → PostgreSQL (prod) / SQLite (local, tests).
-  Superset reads the same database. Base table:
+  Superset reads the same database. Writes are buffered, auto-flushed at the
+  configured batch size, and forced by `flush()`/`close()`. SQLite stores the
+  wall clock as ISO text so timezone information survives round trips. Base table:
 
   ```sql
   CREATE TABLE events (
@@ -166,6 +168,7 @@ robotframework-superset can share concepts and, eventually, code.
 ## 6. Deployment
 
 `infra/docker-compose.yml` brings up PostgreSQL, Redis, and Superset.
-`infra/superset/` holds the Superset image and config. Dashboard bootstrapping
-(datasets, charts, dashboards over the `events` table) is tracked as a
-migration issue.
+`infra/superset/` holds the image, configuration, and an idempotent bootstrap
+for the `events` dataset, derived latency/error/LLM views, charts, and the
+**RF + LLM Observability** dashboard. Operational diagnostics and event-data
+sanitization live under `infra/scripts/`.

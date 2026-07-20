@@ -38,6 +38,7 @@ dev = [
     "pytest-cov>=4.1",
     "mypy>=1.8",
     "ruff>=0.4",
+    "sqlalchemy>=2.0",
 ]
 all = [
     "robotframework-superset[db,openai,ollama]",
@@ -77,6 +78,8 @@ line-length = 100
 target-version = "py310"
 
 [tool.pytest.ini_options]
+pythonpath = ["."]
+markers = ["integration: requires an external service such as PostgreSQL"]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers --strict-config"
 
