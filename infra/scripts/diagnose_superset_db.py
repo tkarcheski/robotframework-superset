@@ -1,7 +1,8 @@
-"""Diagnose Superset database connectivity and the event pipeline.
+"""Diagnose the environment-to-Superset event data path.
 
-Checks every link in the chain: environment -> connection -> schema -> data ->
-Superset. Run from the repository root:
+Checks every link in the chain: environment -> ports -> database connection ->
+schema -> data -> Superset metadata -> Superset health. Run from the
+repository root:
 
     python infra/scripts/diagnose_superset_db.py
 
@@ -10,313 +11,301 @@ Or with an explicit DATABASE_URL:
     DATABASE_URL=postgresql://rfs:changeme@localhost:5433/rfs \\
         python infra/scripts/diagnose_superset_db.py
 
-Passwords are always masked in output; no secret material is ever printed.
+Passwords are always masked; no secret material is printed. Output uses
+[OK]/[WARN]/[FAIL] labels (colored only on a terminal) and failures come with
+remediation hints. Exit code is non-zero when any check fails.
 """
 
 from __future__ import annotations
 
 import os
+import re
+import socket
 import sys
 from pathlib import Path
+from urllib.error import URLError
+from urllib.request import urlopen
 
-# Superset database connection name created by bootstrap_dashboards.py.
-EVENTS_DB_NAME = "RF + LLM Events"
+REQUIRED_COLUMNS = {
+    "id",
+    "event_type",
+    "source",
+    "wall_clock",
+    "monotonic_ns",
+    "level",
+    "message",
+    "duration_ns",
+    "payload",
+}
 
-# The generic event table this stack is built around.
-EXPECTED_TABLES = ["events"]
+# Superset database connection created by infra/superset/bootstrap_dashboards.py.
+EVENTS_DB_NAME = "Robot Framework Events"
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# ---------------------------------------------------------------------------
-# ANSI helpers
-# ---------------------------------------------------------------------------
-_GREEN = "\033[92m"
-_RED = "\033[91m"
-_YELLOW = "\033[93m"
-_BOLD = "\033[1m"
+_COLORS = {"OK": "\033[92m", "WARN": "\033[93m", "FAIL": "\033[91m"}
 _RESET = "\033[0m"
 
-
-def ok(msg: str) -> None:
-    print(f"  {_GREEN}OK{_RESET}  {msg}")
-
-
-def fail(msg: str) -> None:
-    print(f"  {_RED}FAIL{_RESET}  {msg}")
+# Result counters for the final summary (labels match the printed tags).
+_counts: dict[str, int] = {"OK": 0, "WARN": 0, "FAIL": 0}
 
 
-def warn(msg: str) -> None:
-    print(f"  {_YELLOW}WARN{_RESET}  {msg}")
+def _report(label: str, message: str, hint: str | None = None) -> None:
+    _counts[label] += 1
+    tag = f"[{label}]"
+    if sys.stdout.isatty():
+        tag = f"{_COLORS[label]}{tag}{_RESET}"
+    print(f"{tag} {message}")
+    if hint:
+        print(f"       -> {hint}")
 
 
-def heading(msg: str) -> None:
-    print(f"\n{_BOLD}-- {msg} --{_RESET}")
+def ok(message: str) -> None:
+    _report("OK", message)
+
+
+def warn(message: str, hint: str | None = None) -> None:
+    _report("WARN", message, hint)
+
+
+def fail(message: str, hint: str | None = None) -> None:
+    _report("FAIL", message, hint)
+
+
+def load_dotenv(path: Path = _REPO_ROOT / ".env") -> None:
+    """Load simple KEY=VALUE entries without overriding exported values."""
+    if not path.exists():
+        return
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip().strip("'\""))
 
 
 def mask_database_url(url: str) -> str:
-    """Return ``url`` with any password replaced by ``****``.
-
-    Handles ``scheme://user:pass@host:port/db``; a URL without credentials is
-    returned unchanged.
-    """
-    if "@" not in url:
-        return url
-    pre, rest = url.split("@", 1)
-    if ":" in pre:
-        scheme_user = pre.rsplit(":", 1)[0]
-        return f"{scheme_user}:****@{rest}"
-    return url
+    """Hide a URL password while retaining enough information to diagnose."""
+    return re.sub(r"(://[^:/@]+:)[^@]*(@)", r"\1***\2", url)
 
 
-def load_dotenv_if_present() -> None:
-    """Load KEY=VALUE lines from a repo-root .env into the environment.
-
-    Dependency-free (no python-dotenv). Existing environment variables win, so
-    an explicit export always overrides the file.
-    """
-    env_file = _REPO_ROOT / ".env"
-    if not env_file.exists():
-        return
-    for raw in env_file.read_text().splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        key = key.strip()
-        value = value.strip().strip('"').strip("'")
-        os.environ.setdefault(key, value)
+def safe_error(error: Exception) -> str:
+    return mask_database_url(str(error))
 
 
-# ---------------------------------------------------------------------------
-# Checks
-# ---------------------------------------------------------------------------
-def check_env() -> str | None:
-    """Check environment variables and .env file."""
-    heading("Environment")
-
+def check_environment() -> str:
+    """Report .env / variable presence; return DATABASE_URL ('' when unset)."""
     env_file = _REPO_ROOT / ".env"
     if env_file.exists():
-        ok(f".env file exists at {env_file}")
+        ok(f"Environment: .env present at {env_file}")
     else:
-        fail(
-            f".env file missing at {env_file}\n"
-            "        -> Copy .env.example to .env and configure DATABASE_URL."
+        warn(
+            "Environment: .env is missing",
+            "Copy .env.example to .env and set credentials (or export them).",
         )
 
-    url = os.getenv("DATABASE_URL")
-    if url:
-        ok(f"DATABASE_URL is set: {mask_database_url(url)}")
+    database_url = os.getenv("DATABASE_URL", "")
+    if database_url:
+        ok(f"Environment: DATABASE_URL={mask_database_url(database_url)}")
     else:
         fail(
-            "DATABASE_URL is not set.\n"
-            "        -> The DB sink and these scripts need it to reach PostgreSQL.\n"
-            "        -> Example: DATABASE_URL=postgresql://rfs:changeme@localhost:5433/rfs"
+            "Environment: DATABASE_URL is not set",
+            "Example: DATABASE_URL=postgresql://rfs:changeme@localhost:5433/rfs",
         )
 
     if os.getenv("POSTGRES_PASSWORD"):
-        ok("POSTGRES_PASSWORD is set")
+        ok("Environment: POSTGRES_PASSWORD is set")
     else:
         warn(
-            "POSTGRES_PASSWORD is not set.\n"
-            "        -> docker-compose and superset_config.py both default to 'changeme'."
+            "Environment: POSTGRES_PASSWORD is not set",
+            "docker-compose falls back to the insecure default 'changeme'.",
         )
-
-    return url
-
-
-def check_connection(url: str) -> bool:
-    """Try connecting to the database."""
-    heading("Database Connection")
-
-    try:
-        from sqlalchemy import create_engine, text
-    except ImportError:
-        fail('sqlalchemy not installed.\n        -> Run: pip install -e ".[db]"')
-        return False
-
-    try:
-        engine = create_engine(url, connect_args={"connect_timeout": 5})
-        with engine.connect() as conn:
-            version = conn.execute(text("SELECT version()")).scalar()
-            ok(f"Connected to PostgreSQL: {version}")
-        engine.dispose()
-        return True
-    except Exception as exc:  # noqa: BLE001 - report any failure to the user
-        fail(
-            f"Cannot connect to database: {exc}\n"
-            "        -> Is PostgreSQL running? Try: make up (or docker compose ps)\n"
-            "        -> Host uses port 5433; Docker-internal uses 5432."
-        )
-        return False
-
-
-def check_schema(url: str) -> bool:
-    """Check that the events table and Superset metadata tables exist."""
-    heading("Schema")
-
-    from sqlalchemy import create_engine, inspect
-
-    engine = create_engine(url, connect_args={"connect_timeout": 5})
-    all_tables = inspect(engine).get_table_names()
-    all_ok = True
-
-    for table in EXPECTED_TABLES:
-        if table in all_tables:
-            ok(f"Table '{table}' exists")
-        else:
-            fail(
-                f"Table '{table}' is MISSING\n"
-                "        -> Run: make bootstrap (creates it), or write an event."
-            )
-            all_ok = False
-
-    superset_tables = [t for t in all_tables if t.startswith("ab_") or t == "dashboards"]
-    if superset_tables:
-        ok(f"Superset metadata tables found ({len(superset_tables)} tables)")
-    else:
-        warn(
-            "No Superset metadata tables found.\n"
-            "        -> Has the stack initialized? Run: make up && make bootstrap"
-        )
-
-    engine.dispose()
-    return all_ok
-
-
-def check_data(url: str) -> None:
-    """Check row counts in the events table."""
-    heading("Data")
-
-    from sqlalchemy import create_engine, text
-
-    engine = create_engine(url, connect_args={"connect_timeout": 5})
-    with engine.connect() as conn:
-        for table in EXPECTED_TABLES:
-            try:
-                count = conn.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar()  # noqa: S608
-                if count and count > 0:
-                    ok(f"{table}: {count} rows")
-                else:
-                    warn(f"{table}: 0 rows (empty)")
-            except Exception as exc:  # noqa: BLE001 - report per-table failures
-                fail(f"{table}: query failed -- {exc}")
-    engine.dispose()
-
-
-def check_superset_database_connection(url: str) -> None:
-    """Check the Superset 'Database' object exists and its URI is correct."""
-    heading("Superset Database Connection")
-
-    from sqlalchemy import create_engine, text
-
-    engine = create_engine(url, connect_args={"connect_timeout": 5})
-    with engine.connect() as conn:
-        try:
-            row = conn.execute(
-                text(
-                    "SELECT id, sqlalchemy_uri FROM dbs WHERE database_name = :name"
-                ),
-                {"name": EVENTS_DB_NAME},
-            ).fetchone()
-            if row:
-                db_id, uri = row
-                ok(f"Superset database connection '{EVENTS_DB_NAME}' exists (id={db_id})")
-                masked = mask_database_url(uri)
-                if "@postgres:" in uri:
-                    ok(f"URI uses the Docker-internal host: {masked}")
-                elif "localhost" in uri:
-                    warn(
-                        f"URI uses localhost: {masked}\n"
-                        "        -> Works from the host but NOT from inside Docker;\n"
-                        "        -> Superset runs in Docker and needs 'postgres:5432'."
-                    )
-                else:
-                    warn(f"URI: {masked} -- verify it resolves from Superset's container")
-            else:
-                fail(
-                    f"No '{EVENTS_DB_NAME}' database connection in Superset.\n"
-                    "        -> Run: make bootstrap"
-                )
-        except Exception:  # noqa: BLE001 - dbs table may not exist yet
-            warn(
-                "Cannot query Superset's 'dbs' table.\n"
-                "        -> Superset metadata may not exist yet. Run: make bootstrap"
-            )
-    engine.dispose()
+    return database_url
 
 
 def _parse_db_host_port(url: str) -> tuple[str, int]:
     """Extract (host, port) from a DATABASE_URL, falling back to defaults."""
+    default_port = int(os.getenv("POSTGRES_PORT", "5433"))
     if url and "@" in url:
-        after_at = url.split("@", 1)[1]
-        host_port = after_at.split("/", 1)[0]
+        host_port = url.split("@", 1)[1].split("/", 1)[0]
         if ":" in host_port:
-            host, port_str = host_port.rsplit(":", 1)
+            host, port_text = host_port.rsplit(":", 1)
             try:
-                return host, int(port_str)
+                return host, int(port_text)
             except ValueError:
-                return host, int(os.getenv("POSTGRES_PORT", "5433"))
-        return host_port, int(os.getenv("POSTGRES_PORT", "5433"))
-    return os.getenv("DATABASE_HOST", "localhost"), int(os.getenv("POSTGRES_PORT", "5433"))
+                return host, default_port
+        return host_port, default_port
+    return os.getenv("DATABASE_HOST", "localhost"), default_port
 
 
-def check_port_mapping(url: str | None) -> None:
-    """Verify the database and Superset ports are reachable."""
-    heading("Port Mapping")
-
-    import socket
-
-    db_host, db_port = _parse_db_host_port(url or "")
+def check_ports(database_url: str) -> None:
+    """Socket-level reachability of the database and Superset ports."""
+    db_host, db_port = _parse_db_host_port(database_url)
     try:
         socket.create_connection((db_host, db_port), timeout=3).close()
-        ok(f"{db_host}:{db_port} is accepting connections")
-    except OSError:
+        ok(f"Port: database {db_host}:{db_port} is accepting connections")
+    except OSError as exc:
         fail(
-            f"{db_host}:{db_port} is NOT reachable.\n"
-            f"        -> Is PostgreSQL up? Check: docker compose ps postgres"
+            f"Port: database {db_host}:{db_port} is not reachable ({exc})",
+            "Is PostgreSQL up? Check: make ps (host port 5433; Docker-internal 5432).",
         )
 
     superset_port = int(os.getenv("SUPERSET_PORT", "8088"))
     try:
         socket.create_connection(("localhost", superset_port), timeout=3).close()
-        ok(f"localhost:{superset_port} (Superset) is accepting connections")
+        ok(f"Port: Superset localhost:{superset_port} is accepting connections")
     except OSError:
-        warn(f"localhost:{superset_port} (Superset) is NOT reachable")
+        warn(
+            f"Port: Superset localhost:{superset_port} is not reachable",
+            "Is the stack up? Try: make up (then: make ps).",
+        )
 
 
-def main() -> None:
-    load_dotenv_if_present()
+def check_database(url: str) -> bool:
+    from sqlalchemy import create_engine, inspect, text
 
-    print(f"{_BOLD}Superset Database Diagnostic{_RESET}")
+    engine = create_engine(url, pool_pre_ping=True)
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+            ok("Database connection")
+
+            inspector = inspect(connection)
+            if "events" not in inspector.get_table_names():
+                fail(
+                    "Schema: events table is missing",
+                    "Run: make bootstrap (or write one event through the DB sink).",
+                )
+                return False
+            columns = {column["name"] for column in inspector.get_columns("events")}
+            missing = REQUIRED_COLUMNS - columns
+            if missing:
+                fail(
+                    f"Schema: missing columns {', '.join(sorted(missing))}",
+                    "Re-run: make bootstrap (never drops, only creates).",
+                )
+                return False
+            ok("Schema: events table and required columns")
+
+            count = int(connection.scalar(text("SELECT COUNT(*) FROM events")) or 0)
+            null_clocks = int(
+                connection.scalar(
+                    text(
+                        "SELECT COUNT(*) FROM events "
+                        "WHERE wall_clock IS NULL OR monotonic_ns IS NULL"
+                    )
+                )
+                or 0
+            )
+            if null_clocks:
+                fail(f"Data: {null_clocks} event(s) violate the dual-clock invariant")
+                return False
+            if count == 0:
+                warn(
+                    "Data: events table is empty",
+                    "No events written yet; check DATABASE_URL for the sink process.",
+                )
+            else:
+                ok(f"Data: {count} event row(s), dual-clock invariant intact")
+            return True
+    except Exception as exc:  # noqa: BLE001 - diagnostic boundary
+        fail(
+            f"Database: {safe_error(exc)}",
+            "Is PostgreSQL up? Try: make up (host port 5433; Docker-internal 5432).",
+        )
+        return False
+    finally:
+        engine.dispose()
+
+
+def check_superset_metadata(database_url: str) -> None:
+    """Verify the bootstrap-created Superset database connection is sane."""
+    from sqlalchemy import create_engine, text
+
+    engine = create_engine(database_url, pool_pre_ping=True)
+    try:
+        with engine.connect() as connection:
+            row = connection.execute(
+                text("SELECT id, sqlalchemy_uri FROM dbs WHERE database_name = :name"),
+                {"name": EVENTS_DB_NAME},
+            ).fetchone()
+    except Exception:  # noqa: BLE001 - the dbs table may not exist yet
+        warn(
+            "Superset metadata: cannot query the 'dbs' table",
+            "Superset may not be initialized yet. Run: make up && make bootstrap",
+        )
+        return
+    finally:
+        engine.dispose()
+
+    if row is None:
+        fail(
+            f"Superset metadata: no '{EVENTS_DB_NAME}' database connection",
+            "Run: make bootstrap",
+        )
+        return
+    database_id, uri = row
+    masked = mask_database_url(str(uri))
+    if "@postgres:" in str(uri):
+        ok(
+            f"Superset metadata: '{EVENTS_DB_NAME}' (id={database_id}) "
+            f"uses the Docker-internal host: {masked}"
+        )
+    elif "localhost" in str(uri) or "127.0.0.1" in str(uri):
+        fail(
+            f"Superset metadata: '{EVENTS_DB_NAME}' points at {masked}",
+            "Superset runs in Docker and needs postgres:5432, not localhost. "
+            "Run: make bootstrap",
+        )
+    else:
+        warn(
+            f"Superset metadata: '{EVENTS_DB_NAME}' uses {masked}",
+            "Verify this host resolves from inside the Superset container.",
+        )
+
+
+def check_superset(url: str) -> bool:
+    health_url = f"{url.rstrip('/')}/health"
+    try:
+        with urlopen(health_url, timeout=5) as response:  # noqa: S310 - operator URL
+            body = response.read(128).decode("utf-8", errors="replace").strip()
+            if 200 <= response.status < 300:
+                ok(f"Superset health: {body or response.status}")
+                return True
+    except (OSError, URLError) as exc:
+        fail(
+            f"Superset health: {exc}",
+            "Is the superset service running? Check: make ps (or make logs).",
+        )
+        return False
+    fail("Superset health: unexpected response")
+    return False
+
+
+def main() -> int:
+    load_dotenv()
+    print("Superset event pipeline diagnostic")
     print("=" * 50)
 
-    url = check_env()
-    check_port_mapping(url)
+    database_url = check_environment()
+    check_ports(database_url)
+    if database_url:
+        if check_database(database_url):
+            check_superset_metadata(database_url)
+        else:
+            warn("Superset metadata: skipped because the database is unreachable")
 
-    if not url:
-        print(f"\n{_RED}Cannot continue without DATABASE_URL.{_RESET}")
-        sys.exit(1)
+    port = os.getenv("SUPERSET_PORT", "8088")
+    check_superset(os.getenv("SUPERSET_URL", f"http://localhost:{port}"))
 
-    if not check_connection(url):
-        print(f"\n{_RED}Cannot continue without a database connection.{_RESET}")
-        sys.exit(1)
-
-    check_schema(url)
-    check_data(url)
-    check_superset_database_connection(url)
-
-    heading("Summary")
-    print(
-        "If the events table is empty, no events are being written.\n"
-        "Common causes:\n"
-        "  1. DATABASE_URL not set for the process running the DB sink\n"
-        "  2. The sink swallowed an error (skip-and-log); check its warnings\n"
-        "\n"
-        "If data exists but Superset shows nothing:\n"
-        "  1. Flush the Redis cache: make cache-flush\n"
-        "  2. Re-run bootstrap: make bootstrap\n"
-    )
+    print()
+    print(f"Summary: {_counts['OK']} OK, {_counts['WARN']} WARN, {_counts['FAIL']} FAIL")
+    if _counts["FAIL"]:
+        print("Verdict: FAIL - fix the failures above and re-run.")
+        return 1
+    print("Verdict: OK" + (" (with warnings)" if _counts["WARN"] else ""))
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
