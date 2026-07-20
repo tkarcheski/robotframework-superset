@@ -4,7 +4,7 @@
     "module": "esnext",
     "moduleResolution": "node",
     "lib": ["dom", "es2019"],
-    "jsx": "react",
+    "jsx": "react-jsx",
     "types": ["react"],
     "declaration": true,
     "esModuleInterop": true,

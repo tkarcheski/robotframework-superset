@@ -5,8 +5,9 @@
  * draws them. Each node is coloured by the pass rate of the runs at that
  * commit: green at/above the threshold, amber→red below, grey when no run
  * exists for that SHA. Merges are drawn as diamonds.
+ *
+ * Uses the automatic JSX runtime (Superset 6.0's build), so no `import React`.
  */
-import React from 'react';
 import { GitLaneProps, LaidOutNode } from './types';
 
 const PASS_THRESHOLD = 95;
