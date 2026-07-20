@@ -47,20 +47,31 @@ sink **must** persist both. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - **Plugins**: listeners, feeds, and sinks are all discovered via entry points,
   so third parties extend the framework without forking it.
 
-## Quickstart (placeholder)
+## Quickstart
 
 ```bash
-pip install robotframework-superset            # once published to PyPI
+cp .env.example .env            # edit credentials
 
-# Bring up PostgreSQL + Superset locally:
-cp .env.example .env                           # edit credentials
-docker compose -f infra/docker-compose.yml --env-file .env up -d
-
-# Attach the standard listener to a Robot run (once implemented):
-robot --listener robotframework_superset.listeners.robot_listener.RobotFrameworkListener tests/
+make up          # build + start Postgres + Redis + Superset (bootstraps on init)
+make diagnose    # verify env -> connection -> schema -> data -> Superset
+open http://localhost:8088      # Superset (admin / $SUPERSET_ADMIN_PASSWORD)
 ```
 
-Full end-to-end usage lands with the concrete implementations — see the epic.
+`make up` runs `bootstrap_dashboards.py` after `superset init`, creating the
+"RF + LLM Observability" dashboard over the `events` table. Re-run it any time
+with `make bootstrap` (idempotent). Other stack tasks:
+
+| Target             | What it does                                             |
+|--------------------|----------------------------------------------------------|
+| `make bootstrap`   | (Re)create datasets, charts, and the dashboard           |
+| `make diagnose`    | Check the env -> connection -> schema -> data -> Superset chain |
+| `make cache-flush` | Clear Superset's Redis cache so new data appears at once  |
+| `make sanitize`    | Truncate the `events` table (dashboards/charts preserved) |
+| `make down`        | Stop the stack (volumes preserved)                       |
+
+Attaching listeners/feeds to a Robot run lands with the concrete producer
+implementations — see the epic. Full docs (quickstart, extension, timestamp
+guides) are tracked in the documentation issue.
 
 ## Extending it
 

@@ -61,6 +61,7 @@ services:
       SUPERSET_ADMIN_EMAIL: ${SUPERSET_ADMIN_EMAIL:-admin@example.local}
     volumes:
       - ./superset/superset_config.py:/app/superset_config.py:ro
+      - ./superset/bootstrap_dashboards.py:/app/bootstrap_dashboards.py:ro
     networks:
       - rfs-net
     entrypoint: /bin/bash
@@ -74,7 +75,8 @@ services:
           --email "$SUPERSET_ADMIN_EMAIL" \
           --password "$SUPERSET_ADMIN_PASSWORD" || true &&
         superset init &&
-        echo "=== Superset init complete ==="
+        python /app/bootstrap_dashboards.py &&
+        echo "=== Superset init + bootstrap complete ==="
     restart: "no"
 
   superset:
@@ -98,6 +100,7 @@ services:
       - "${SUPERSET_PORT:-8088}:8088"
     volumes:
       - ./superset/superset_config.py:/app/superset_config.py:ro
+      - ./superset/bootstrap_dashboards.py:/app/bootstrap_dashboards.py:ro
     networks:
       - rfs-net
     healthcheck:
