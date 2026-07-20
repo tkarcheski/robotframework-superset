@@ -1,5 +1,7 @@
 # robotframework-superset
 
+[![CI](https://github.com/tkarcheski/robotframework-superset/actions/workflows/ci.yml/badge.svg)](https://github.com/tkarcheski/robotframework-superset/actions/workflows/ci.yml)
+
 Extensible **listeners** and precisely-timestamped **event feeds** for
 [Robot Framework](https://robotframework.org/), visualized with
 [Apache Superset](https://superset.apache.org/).
@@ -104,6 +106,13 @@ sink = load_sink("graylog", host="graylog.local", port=12201)
 The design deliberately aligns with
 [rf-graylog](https://github.com/tkarcheski/rf-graylog)'s listener/transport
 split, so a GELF transport can become just another sink.
+
+## Releasing
+
+Publishing to PyPI is a single, owner-gated action authenticated with Trusted
+Publishing (OIDC) — no API token is stored in repository secrets. See
+[docs/RELEASING.md](docs/RELEASING.md) for the one-time setup and the
+tag-to-publish flow.
 
 ## License
 
