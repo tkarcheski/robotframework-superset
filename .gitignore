@@ -34,3 +34,4 @@ results/
 pgdata/
 *.db
 *.sqlite3
+uv.lock
