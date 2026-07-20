@@ -134,8 +134,38 @@ Reference sinks:
   );
   ```
 
+- **`GelfSink`** — ships each event to a Graylog **GELF-over-TCP** input, so
+  GELF is just another sink (issue #14). The GELF-over-TCP transport is vendored
+  from rf-graylog (see §5), keeping the sink stdlib-only. Both timestamps are
+  preserved: `wall_clock` becomes the GELF `timestamp` (Unix epoch, microsecond
+  precision) *and* `_wall_clock` (the original ISO-8601 string); `monotonic_ns`
+  becomes `_monotonic_ns`. `level` maps to the numeric syslog/GELF severity;
+  `payload` keys are flattened into `_`-prefixed additional fields.
+- **`MultiSink`** — a composite that fans one event out to several sinks, so a
+  single run can persist to Superset **and** forward to Graylog at once:
+  `MultiSink(DatabaseSink(...), GelfSink(...))`. A failing child sink is isolated
+  (skip-and-log) so the others still receive the event.
 - **`NullSink`** — discards events (telemetry off).
 - **`MemorySink`** — keeps events in a list (tests).
+
+### 3.1 Choosing a sink: Superset, GELF, or both
+
+| Goal                                                        | Sink                              |
+|-------------------------------------------------------------|-----------------------------------|
+| Structured, queryable history for dashboards and SQL        | `DatabaseSink` (Superset-backed)  |
+| Live log search, alerting, correlation with app/system logs | `GelfSink` (Graylog)              |
+| Both at once — dashboards *and* live search                 | `MultiSink(DatabaseSink, GelfSink)` |
+| Telemetry off (default)                                     | `NullSink`                        |
+
+- Use the **Superset sink** as the system of record: it stores every column
+  (both clocks, `duration_ns`, `payload` as JSONB) for retrospective analysis,
+  charts, and durable history.
+- Use the **GELF sink** for real-time operations: Graylog streams, saved
+  searches, and threshold alerts, and to correlate test events with the same
+  Graylog instance already collecting application and infrastructure logs.
+- Use **both** (via `MultiSink`) when a run must be both dashboarded and
+  watched live. Sinks are independent, so a Graylog outage never blocks the
+  database write, and vice versa.
 
 ## 4. Plugin registration
 
@@ -159,9 +189,22 @@ sink = load_sink("db", database_url="postgresql://...")
 transport from multiple listener implementations (builtin, telnet, LLM) and
 uses a process-wide registry so a library and its listener share one transport.
 This project generalizes that shape: its **transport** becomes our **sink**,
-its **listeners** map onto our listener/feed split, and GELF can be packaged as
-just another sink plugin. Aligning the abstractions means rf-graylog and
-robotframework-superset can share concepts and, eventually, code.
+its **listeners** map onto our listener/feed split, and GELF is packaged as
+just another sink plugin (`GelfSink`, §3). Aligning the abstractions means
+rf-graylog and robotframework-superset share concepts and, eventually, code.
+
+**Packaging decision (issue #14).** The GELF sink lives **in this repo**,
+registered under the `robotframework_superset.sinks` group as `graylog`, rather
+than as a separate package inside rf-graylog that depends on this one. This is
+the smaller, reversible option: it keeps the reference sink discoverable out of
+the box and adds no cross-repo dependency edge. The GELF-over-TCP transport is
+**vendored** (a minimal, stdlib-only adaptation of rf-graylog's
+`robot_graylog_common.transport`) rather than imported, so the sink has no
+runtime dependency on rf-graylog and registers unconditionally — importing the
+plugin can never fail for a missing optional dependency. An empty `graylog`
+extra is published as a forward-compatible hook for consumers who would rather
+install rf-graylog and swap the transport. rf-graylog's public API is
+untouched, per the issue's no-breaking-change constraint.
 
 ## 6. Deployment
 

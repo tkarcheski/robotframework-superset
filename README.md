@@ -62,34 +62,76 @@ robot --listener robotframework_superset.listeners.robot_listener.RobotFramework
 
 Full end-to-end usage lands with the concrete implementations — see the epic.
 
-## Extending it
+## GELF / Graylog sink
 
-Write your own listener, feed, or sink by subclassing the base and registering
-an entry point:
-
-```python
-# my_pkg/gelf_sink.py
-from robotframework_superset import BaseSink, Event
-
-class GelfSink(BaseSink):
-    def emit(self, event: Event) -> None:
-        ...  # ship event.to_dict() to Graylog
-```
-
-```toml
-# my_pkg/pyproject.toml
-[project.entry-points."robotframework_superset.sinks"]
-graylog = "my_pkg.gelf_sink:GelfSink"
-```
+GELF is a first-class, built-in sink: `GelfSink` ships every event to a Graylog
+GELF-over-TCP input. Both clocks are preserved on the wire — `wall_clock`
+becomes the GELF `timestamp` (Unix epoch, microsecond precision) *and*
+`_wall_clock` (the original ISO-8601 string); `monotonic_ns` becomes
+`_monotonic_ns`.
 
 ```python
 from robotframework_superset.registry import load_sink
 sink = load_sink("graylog", host="graylog.local", port=12201)
 ```
 
+The GELF-over-TCP transport is vendored from
+[rf-graylog](https://github.com/tkarcheski/rf-graylog) (stdlib only), so the
+sink needs no extra dependencies and registers out of the box. See
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §5 for the packaging rationale.
+
+### Superset sink vs GELF sink vs both
+
+| Goal                                                    | Sink                                 |
+|---------------------------------------------------------|--------------------------------------|
+| Queryable history for dashboards and SQL                | `DatabaseSink` (Superset-backed)     |
+| Live log search, alerting, correlation with other logs  | `GelfSink` (Graylog)                 |
+| Both at once                                            | `MultiSink(DatabaseSink, GelfSink)`  |
+
+`MultiSink` fans one event out to several sinks, so a single run can be
+dashboarded in Superset and watched live in Graylog without either backend
+blocking the other:
+
+```python
+from robotframework_superset.sinks.db import DatabaseSink
+from robotframework_superset.sinks.gelf import GelfSink
+from robotframework_superset.sinks.multi import MultiSink
+
+sink = MultiSink(
+    DatabaseSink(database_url="postgresql://..."),
+    GelfSink(host="graylog.local", port=12201),
+)
+```
+
+## Extending it
+
+Write your own listener, feed, or sink by subclassing the base and registering
+an entry point:
+
+```python
+# my_pkg/stdout_sink.py
+from robotframework_superset import BaseSink, Event
+
+class StdoutSink(BaseSink):
+    def emit(self, event: Event) -> None:
+        print(event.to_dict())  # ship event.to_dict() wherever it needs to go
+```
+
+```toml
+# my_pkg/pyproject.toml
+[project.entry-points."robotframework_superset.sinks"]
+stdout = "my_pkg.stdout_sink:StdoutSink"
+```
+
+```python
+from robotframework_superset.registry import load_sink
+sink = load_sink("stdout")
+```
+
 The design deliberately aligns with
 [rf-graylog](https://github.com/tkarcheski/rf-graylog)'s listener/transport
-split, so a GELF transport can become just another sink.
+split, so a GELF transport becomes just another sink — as `GelfSink` already
+demonstrates.
 
 ## License
 

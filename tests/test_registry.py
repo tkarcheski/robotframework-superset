@@ -23,6 +23,18 @@ def test_builtin_sinks_registered_or_skip() -> None:
         pytest.skip("package not installed; entry points unavailable")
     assert "null" in sinks
     assert "db" in sinks
+    assert "graylog" in sinks
+    assert "multi" in sinks
+
+
+def test_load_graylog_sink_or_skip() -> None:
+    from robotframework_superset.sinks.gelf import GelfSink
+
+    sinks = registry.list_plugins("robotframework_superset.sinks")
+    if "graylog" not in sinks:
+        pytest.skip("package not installed; entry points unavailable")
+    sink = registry.load_sink("graylog", host="127.0.0.1", port=12201)
+    assert isinstance(sink, GelfSink)
 
 
 def test_load_unknown_raises() -> None:

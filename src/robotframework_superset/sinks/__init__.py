@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
-from .null import NullSink
+from .gelf import GelfSink
+from .multi import MultiSink
+from .null import MemorySink, NullSink
 
-__all__ = ["NullSink"]
+__all__ = ["GelfSink", "MemorySink", "MultiSink", "NullSink"]

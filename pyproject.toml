@@ -27,13 +27,18 @@ db = ["sqlalchemy>=2.0", "psycopg2-binary>=2.9"]
 # LLM feeds.
 openai = ["requests>=2.28"]
 ollama = ["requests>=2.28"]
+# GELF / Graylog sink. The GELF-over-TCP transport is vendored (stdlib only),
+# so the sink registers and runs out of the box with no extra dependencies.
+# This extra is a documented, forward-compatible hook: a consumer who prefers
+# to install rf-graylog and swap the vendored transport can pin it here.
+graylog = []
 dev = [
     "pytest>=7.0",
     "mypy>=1.8",
     "ruff>=0.4",
 ]
 all = [
-    "robotframework-superset[db,openai,ollama]",
+    "robotframework-superset[db,openai,ollama,graylog]",
 ]
 
 [project.urls]
@@ -57,6 +62,8 @@ ollama = "robotframework_superset.feeds.ollama_feed:OllamaFeed"
 [project.entry-points."robotframework_superset.sinks"]
 db = "robotframework_superset.sinks.db:DatabaseSink"
 null = "robotframework_superset.sinks.null:NullSink"
+graylog = "robotframework_superset.sinks.gelf:GelfSink"
+multi = "robotframework_superset.sinks.multi:MultiSink"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/robotframework_superset"]
