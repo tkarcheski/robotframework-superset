@@ -1,0 +1,30 @@
+# Packaging for the example JSONL sink plugin.
+#
+# This shows how a third party ships a sink without touching
+# robotframework-superset: register the class under the
+# ``robotframework_superset.sinks`` entry-point group and the registry
+# discovers it at runtime.
+#
+# From this directory:
+#   pip install .
+# Then the plugin is available by name:
+#   python -c "from robotframework_superset.registry import load_sink; \
+#              print(load_sink('jsonl', path='events.jsonl'))"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "rfs-jsonl-sink"
+version = "0.1.0"
+description = "Example JSONL sink plugin for robotframework-superset"
+requires-python = ">=3.10"
+dependencies = ["robotframework-superset>=0.1"]
+
+[tool.hatch.build.targets.wheel]
+# A single-module distribution.
+include = ["rfs_jsonl_sink.py"]
+
+[project.entry-points."robotframework_superset.sinks"]
+jsonl = "rfs_jsonl_sink:JsonlSink"
