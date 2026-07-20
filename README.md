@@ -1,5 +1,7 @@
 # robotframework-superset
 
+[![CI](https://github.com/tkarcheski/robotframework-superset/actions/workflows/ci.yml/badge.svg)](https://github.com/tkarcheski/robotframework-superset/actions/workflows/ci.yml)
+
 Extensible **listeners** and precisely-timestamped **event feeds** for
 [Robot Framework](https://robotframework.org/), visualized with
 [Apache Superset](https://superset.apache.org/).
@@ -9,9 +11,9 @@ console/telnet traffic, and LLM API calls (OpenAI, Ollama) — as a single
 stream of events, each stamped with **two clocks** (wall-clock and monotonic),
 persist them to a Superset-backed database, and explore them in dashboards.
 
-> Status: **early scaffold.** The core abstractions (event model, listener /
-> feed / sink interfaces, plugin registry) are defined; concrete
-> implementations are tracked as issues under the migration epic. See
+> Status: **v0.1 implementation in progress.** The event contract, plugin
+> registry, standard Robot listener, SQL sink, and starter Superset deployment
+> are implemented. Console and LLM producers remain tracked under the migration epic. See
 > [the issue tracker](https://github.com/tkarcheski/robotframework-superset/issues).
 
 ## Why two clocks?
@@ -47,20 +49,31 @@ sink **must** persist both. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - **Plugins**: listeners, feeds, and sinks are all discovered via entry points,
   so third parties extend the framework without forking it.
 
-## Quickstart (placeholder)
+## Quickstart
 
 ```bash
-pip install robotframework-superset            # once published to PyPI
+# From this checkout (use pip install robotframework-superset[db] after release):
+python -m pip install -e ".[db]"
 
 # Bring up PostgreSQL + Superset locally:
-cp .env.example .env                           # edit credentials
-docker compose -f infra/docker-compose.yml --env-file .env up -d
+cp .env.example .env
+# Replace the placeholder database, Superset, and admin credentials in .env.
+make up
 
-# Attach the standard listener to a Robot run (once implemented):
-robot --listener robotframework_superset.listeners.robot_listener.RobotFrameworkListener tests/
+# Export DATABASE_URL for the listener and attach the database sink:
+set -a; source .env; set +a
+robot --listener robotframework_superset.listeners.robot_listener.RobotFrameworkListener:sink=db path/to/tests/
 ```
 
-Full end-to-end usage lands with the concrete implementations — see the epic.
+Open <http://localhost:8088> and select **RF + LLM Observability**. The
+bootstrap is idempotent; use `make bootstrap` to refresh its database,
+datasets, charts, and dashboard. `make diagnose` checks the complete
+environment → database → schema → data → Superset path.
+
+Keyword events are enabled by default and can be high-volume. Disable them
+with `:keyword_events=false` on the listener argument. Sinks are discovered
+through the `robotframework_superset.sinks` entry-point group; `sink=db` uses
+`DATABASE_URL`, while `sink=null` disables persistence.
 
 ## GELF / Graylog sink
 
@@ -105,6 +118,9 @@ sink = MultiSink(
 
 ## Extending it
 
+See the complete [extension guide](docs/EXTENDING.md) for a runnable external
+package, installation, discovery, and listener argument conventions.
+
 Write your own listener, feed, or sink by subclassing the base and registering
 an entry point:
 
@@ -132,6 +148,13 @@ The design deliberately aligns with
 [rf-graylog](https://github.com/tkarcheski/rf-graylog)'s listener/transport
 split, so a GELF transport becomes just another sink — as `GelfSink` already
 demonstrates.
+
+## Releasing
+
+Publishing to PyPI is a single, owner-gated action authenticated with Trusted
+Publishing (OIDC) — no API token is stored in repository secrets. See
+[docs/RELEASING.md](docs/RELEASING.md) for the one-time setup and the
+tag-to-publish flow.
 
 ## License
 

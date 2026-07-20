@@ -17,13 +17,13 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
       POSTGRES_DB: ${POSTGRES_DB:-rfs}
     ports:
-      - "${POSTGRES_PORT:-5433}:${POSTGRES_INTERNAL_PORT:-5432}"
+      - "127.0.0.1:${POSTGRES_PORT:-5433}:${POSTGRES_INTERNAL_PORT:-5432}"
     volumes:
       - pgdata:/var/lib/postgresql/data
     networks:
       - rfs-net
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rfs}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rfs} -d ${POSTGRES_DB:-rfs}"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -55,25 +55,29 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-rfs}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
       POSTGRES_DB: ${POSTGRES_DB:-rfs}
+      POSTGRES_HOST_INTERNAL: postgres
       POSTGRES_INTERNAL_PORT: ${POSTGRES_INTERNAL_PORT:-5432}
       SUPERSET_ADMIN_USER: ${SUPERSET_ADMIN_USER:-admin}
       SUPERSET_ADMIN_PASSWORD: ${SUPERSET_ADMIN_PASSWORD:-admin}
       SUPERSET_ADMIN_EMAIL: ${SUPERSET_ADMIN_EMAIL:-admin@example.local}
     volumes:
       - ./superset/superset_config.py:/app/superset_config.py:ro
+      - ./superset/bootstrap_dashboards.py:/app/bootstrap_dashboards.py:ro
     networks:
       - rfs-net
     entrypoint: /bin/bash
     command:
       - -c
       - |
-        superset db upgrade &&
+        set -e
+        superset db upgrade
         superset fab create-admin \
           --username "$SUPERSET_ADMIN_USER" \
           --firstname Admin --lastname User \
           --email "$SUPERSET_ADMIN_EMAIL" \
-          --password "$SUPERSET_ADMIN_PASSWORD" || true &&
-        superset init &&
+          --password "$SUPERSET_ADMIN_PASSWORD" || true
+        superset init
+        python /app/bootstrap_dashboards.py
         echo "=== Superset init complete ==="
     restart: "no"
 
@@ -93,6 +97,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-rfs}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
       POSTGRES_DB: ${POSTGRES_DB:-rfs}
+      POSTGRES_HOST_INTERNAL: postgres
       POSTGRES_INTERNAL_PORT: ${POSTGRES_INTERNAL_PORT:-5432}
     ports:
       - "${SUPERSET_PORT:-8088}:8088"

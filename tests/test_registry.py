@@ -37,6 +37,35 @@ def test_load_graylog_sink_or_skip() -> None:
     assert isinstance(sink, GelfSink)
 
 
+def test_builtin_plugins_load_by_name_or_skip() -> None:
+    plugins = registry.available()
+    if not plugins["sinks"]:
+        pytest.skip("package not installed; entry points unavailable")
+    sink = registry.load_sink("null")
+    listener = registry.load_listener("robot", "sink=null")
+    assert sink.__class__.__name__ == "NullSink"
+    assert listener.sink.__class__.__name__ == "NullSink"
+
+
 def test_load_unknown_raises() -> None:
-    with pytest.raises(KeyError):
+    with pytest.raises(KeyError, match="Available"):
         registry.load_sink("does-not-exist")
+
+
+def test_external_entry_point_is_discoverable(monkeypatch: pytest.MonkeyPatch) -> None:
+    class ExampleSink:
+        def __init__(self, value: int = 0) -> None:
+            self.value = value
+
+    class EntryPoint:
+        name = "example"
+
+        def load(self) -> type[ExampleSink]:
+            return ExampleSink
+
+    def fake_entry_points(*, group: str) -> list[EntryPoint]:
+        return [EntryPoint()] if group == "robotframework_superset.sinks" else []
+
+    monkeypatch.setattr(registry, "entry_points", fake_entry_points)
+    assert registry.list_plugins("robotframework_superset.sinks") == ["example"]
+    assert registry.load_sink("example", value=7).value == 7

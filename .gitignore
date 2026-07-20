@@ -13,6 +13,12 @@ venv/
 .ruff_cache/
 .pytest_cache/
 
+# Coverage
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
 # Environment / secrets — never commit real values
 .env
 .env.local
