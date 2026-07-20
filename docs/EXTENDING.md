@@ -146,11 +146,18 @@ Available hooks: `on_run_start`, `on_run_end`, `on_suite_start`,
 class calls `sink.close()` when RF ends the run, so buffered sinks flush
 automatically.
 
-Attach a registered listener on the Robot command line by its import path:
+Attach a listener on the Robot command line by its import path. Robot passes
+anything after the import path as colon-delimited positional strings; the
+built-in listeners use a shared `key=value` convention for them:
 
 ```bash
-robot --listener my_pkg.timing:TestTimingListener tests/
+robot --listener robotframework_superset.listeners.robot_listener.RobotFrameworkListener:sink=jsonl:keyword_events=false tests/
 ```
+
+Use `parse_listener_arguments()` from
+`robotframework_superset.listeners.base` to adopt the same parsing behavior in
+a custom listener. Unknown plugin names raise `KeyError` and list the
+available names, making installation mistakes visible immediately.
 
 ## 5. Registering the plugin
 

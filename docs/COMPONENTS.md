@@ -14,14 +14,18 @@ are never printed to events — record names, not secrets.
 Registered under `robotframework_superset.listeners`. Attach on the Robot
 command line with `--listener <import-path>[:arg=value...]`.
 
-### `RobotFrameworkListener` — scaffold (#4)
+### `RobotFrameworkListener` — ready
 
 The standard listener; maps the full RF lifecycle to events.
 
 - Entry point: `robot`
 - Import path:
   `robotframework_superset.listeners.robot_listener.RobotFrameworkListener`
-- Constructor: `RobotFrameworkListener(sink=None, source="robot")`
+- Constructor:
+  `RobotFrameworkListener(*arguments, sink=None, source="robot", keyword_events=True)`
+- Command-line arguments use the colon-delimited `key=value` convention
+  (for example `--listener <import-path>:sink=db:keyword_events=false`); see
+  [EXTENDING §4](EXTENDING.md#4-writing-a-listener).
 - Event types: `robot.run.start` / `.end`, `robot.suite.start` / `.end`,
   `robot.test.start` / `.end` (with `status` + `duration_ns`),
   `robot.keyword.start` / `.end` (with `duration_ns`), `robot.log`.
@@ -113,7 +117,7 @@ ad-hoc instrumentation (see [EXTENDING §3](EXTENDING.md#3-writing-a-feed)).
 Registered under `robotframework_superset.sinks`. Loaded by name via
 `registry.load_sink(name, **kwargs)`.
 
-### `DatabaseSink` — scaffold (#8)
+### `DatabaseSink` — ready
 
 Writes events to the Superset-backed SQL database (PostgreSQL in production,
 SQLite locally).
@@ -123,7 +127,7 @@ SQLite locally).
 - `database_url` defaults to the `DATABASE_URL` env var (a SQLAlchemy URL).
 - Writes are buffered and flushed in batches of `batch_size`;
   `flush`/`close` force a final write.
-- Target schema (finalized in #8):
+- Schema:
 
   ```sql
   CREATE TABLE events (
@@ -151,11 +155,12 @@ Discards every event. The safe default when telemetry is disabled.
 Keeps events in a list (`.events`) for tests and assertions. Not registered as
 an entry point; import from `robotframework_superset.sinks.null`.
 
-## Superset dashboards — scaffold (#9)
+## Superset dashboards — ready (#9 refinements in flight)
 
 [`infra/docker-compose.yml`](../infra/docker-compose.yml) brings up PostgreSQL,
 Redis, and Apache Superset; [`infra/superset/`](../infra/superset/) holds the
-image and `superset_config.py`. Superset reads the same PostgreSQL database the
-DB sink writes, charting the `events` table. Automated dashboard bootstrapping
-(datasets, charts, dashboards) is tracked in #9. See the
-[Quickstart](../README.md#quickstart) for bringing the stack up.
+image, `superset_config.py`, and `bootstrap_dashboards.py`, which idempotently
+creates the database connection, datasets, charts, and the starter dashboard
+over the `events` table (`make bootstrap`). Superset reads the same PostgreSQL
+database the DB sink writes. Further dashboard refinements are tracked in #9.
+See the [Quickstart](../README.md#quickstart) for bringing the stack up.
