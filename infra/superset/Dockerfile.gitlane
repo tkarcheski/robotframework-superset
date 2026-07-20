@@ -39,7 +39,9 @@ s=s.replace(/new\\s+\\w+Preset\\(\\{[\\s\\S]*?plugins:\\s*\\[/, m=>m+\"\\n      
 fs.writeFileSync(f,s);}"
 
 # Install (including the workspace plugin) and produce the production assets.
-RUN npm ci --legacy-peer-deps \
+# Use `npm install` (not `npm ci`): we just mutated package.json above, so the
+# committed lockfile is intentionally out of sync and `npm ci` would abort.
+RUN npm install --legacy-peer-deps \
  && npm run build
 
 # ---------------------------------------------------------------------------

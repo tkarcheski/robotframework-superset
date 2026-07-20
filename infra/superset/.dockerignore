@@ -1,0 +1,5 @@
+# Keep local dev/build artifacts out of the image build context.
+plugins/**/node_modules
+plugins/**/lib
+plugins/**/esm
+plugins/**/*.tsbuildinfo
