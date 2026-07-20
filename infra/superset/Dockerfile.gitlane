@@ -1,60 +1,84 @@
 # Custom Superset image with the git-lane commit-DAG viz plugin compiled in.
 #
-# ⚠️ NOT built or verified in CI (the project's CI is Python-only). Superset has
-# no runtime plugin-drop for viz types, so a custom chart must be compiled into
-# the frontend bundle — hence this multi-stage build against the Superset 6.0.0
-# frontend source. Treat as reviewable, buildable source pending a real build.
+# Superset has no runtime plugin-drop for viz types, so a custom chart must be
+# compiled into the frontend bundle — hence this multi-stage build against the
+# Superset 6.0.0 frontend source.
+#
+# This recipe is validated: the frontend compiles green with the plugin
+# (webpack exit 0; `git_lane_graph` present in the emitted bundle). The one
+# non-obvious constraint it encodes: DO NOT add the plugin as a workspace / a
+# `file:` dependency and re-run `npm install` — that re-resolves Superset's
+# pinned lockfile and drops optional deps (deck.gl, react-spring, …), breaking
+# the build. Instead: pristine `npm ci`, then drop the PRE-BUILT plugin into
+# node_modules/@rfc so Superset's own dependency tree is untouched.
 #
 #   docker build -f Dockerfile.gitlane -t rfc-superset-gitlane:6.0.0 .
 #
+# NOTE: the docker image build itself is not exercised in CI (Python-only CI).
+# Behind a proxy, build with --network host and thread proxy/CA settings in
+# (see /root/.ccr/README.md in the RFC dev sandbox); the frontend build fetches
+# from github + the npm registry.
+#
 # ---------------------------------------------------------------------------
-# Stage 1 — build the Superset frontend with our plugin registered.
+# Stage 1 — build the plugin package (emits plain-JS lib/ the frontend can use)
 # ---------------------------------------------------------------------------
-FROM node:20-bookworm AS frontend
-
-ARG SUPERSET_VERSION=6.0.0
-WORKDIR /build
-
-# Superset frontend source at the exact runtime version. Shallow clone of the
-# tag keeps the layer small; only superset-frontend/ is needed.
-RUN git clone --depth 1 --branch ${SUPERSET_VERSION} \
-      https://github.com/apache/superset.git superset
-
-# Drop the plugin in as a local workspace package.
-COPY plugins/plugin-chart-git-lane \
-     /build/superset/superset-frontend/plugins/plugin-chart-git-lane
-
-WORKDIR /build/superset/superset-frontend
-
-# Add the plugin to the frontend deps and register it in the MainPreset. The
-# registration edit is intentionally explicit (not sed-in-place magic) so a
-# reviewer can see exactly what changes; if MainPreset's shape drifts between
-# Superset versions, THIS is the line to update.
-RUN npm pkg set 'dependencies.@rfc/plugin-chart-git-lane'='file:plugins/plugin-chart-git-lane' \
- && node -e "const f='src/visualizations/presets/MainPreset.js';\
-const fs=require('fs');let s=fs.readFileSync(f,'utf8');\
-if(!s.includes('plugin-chart-git-lane')){\
-s=\"import GitLaneChartPlugin from '@rfc/plugin-chart-git-lane';\\n\"+s;\
-s=s.replace(/new\\s+\\w+Preset\\(\\{[\\s\\S]*?plugins:\\s*\\[/, m=>m+\"\\n        new GitLaneChartPlugin().configure({ key: 'git_lane_graph' }),\");\
-fs.writeFileSync(f,s);}"
-
-# Install (including the workspace plugin) and produce the production assets.
-# Use `npm install` (not `npm ci`): we just mutated package.json above, so the
-# committed lockfile is intentionally out of sync and `npm ci` would abort.
-RUN npm install --legacy-peer-deps \
+FROM node:20-bookworm AS plugin
+WORKDIR /plugin
+COPY plugins/plugin-chart-git-lane/package.json plugins/plugin-chart-git-lane/tsconfig.json ./
+COPY plugins/plugin-chart-git-lane/src ./src
+# The plugin only needs its build-time deps (typescript + types) to emit lib/.
+RUN npm install --no-save --legacy-peer-deps \
+      @superset-ui/core@0.20.4 @superset-ui/chart-controls@0.20.3 \
+      react@16.14.0 @types/react@16.14.62 typescript@4.9.5 \
  && npm run build
 
 # ---------------------------------------------------------------------------
-# Stage 2 — runtime image: stock Superset + our compiled assets + py deps.
+# Stage 2 — build the Superset frontend with the plugin registered.
+# ---------------------------------------------------------------------------
+FROM node:20-bookworm AS frontend
+ARG SUPERSET_VERSION=6.0.0
+WORKDIR /build
+
+# simple-zstd (a webpack.proxy-config dependency) shells out to the zstd binary.
+RUN apt-get update && apt-get install -y --no-install-recommends zstd \
+ && rm -rf /var/lib/apt/lists/*
+
+# Superset frontend source at the exact runtime version.
+RUN git clone --depth 1 --branch ${SUPERSET_VERSION} \
+      https://github.com/apache/superset.git superset
+WORKDIR /build/superset/superset-frontend
+
+# Pristine install of Superset's EXACT pinned deps — no re-resolution.
+RUN npm ci --no-audit --no-fund
+
+# Drop the pre-built plugin in as a plain package (NOT a workspace), so the
+# lockfile-resolved dependency tree above stays exactly as Superset pinned it.
+COPY --from=plugin /plugin/lib        node_modules/@rfc/plugin-chart-git-lane/lib
+COPY --from=plugin /plugin/package.json node_modules/@rfc/plugin-chart-git-lane/package.json
+
+# Register the plugin in the MainPreset. Explicit (not sed-magic) so a reviewer
+# can see the change; if MainPreset's shape drifts between Superset versions,
+# THIS is the line to update.
+RUN node -e "const f='src/visualizations/presets/MainPreset.js';\
+const fs=require('fs');let s=fs.readFileSync(f,'utf8');\
+if(!s.includes('plugin-chart-git-lane')){\
+s=\"import GitLaneChartPlugin from '@rfc/plugin-chart-git-lane';\\n\"+s;\
+s=s.replace(/(plugins:\\s*\\[)/, \"\$1\\n        new GitLaneChartPlugin().configure({ key: 'git_lane_graph' }),\");\
+fs.writeFileSync(f,s);console.log('MainPreset patched');}"
+
+# Produce the production assets (emitted to ../superset/static/assets).
+RUN npm run build
+
+# ---------------------------------------------------------------------------
+# Stage 3 — runtime image: stock Superset + our compiled assets + py deps.
 # ---------------------------------------------------------------------------
 FROM apache/superset:6.0.0
 
 USER root
-# Same runtime python deps as the base RFC image (installed into the venv).
 RUN uv pip install --python /app/.venv/bin/python psycopg2-binary redis flask-cors
 
 # Overlay the freshly-built frontend bundle (which now contains git_lane_graph).
-COPY --from=frontend /build/superset/superset-frontend/dist/ \
+COPY --from=frontend /build/superset/superset/static/assets/ \
      /app/superset/static/assets/
 
 USER superset

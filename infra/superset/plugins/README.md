@@ -27,14 +27,26 @@ already defines (see `robotframework-chat/superset/bootstrap_dashboards.py`):
 
 The chart reads edges from its own dataset and looks up decoration by SHA.
 
-## ⚠️ Build & verification status
+## Build & verification status
 
-**The plugin source in this directory has NOT been compiled or runtime-tested
-in CI.** Building it requires the full Superset frontend source tree and a
-large Node/webpack build that does not run in the project's cloud CI (which
-only exercises Python — see `.github/workflows/ci.yml`). Treat the TypeScript
-here as reviewable, buildable source that a frontend build must validate before
-deployment, not as a proven artifact.
+**The frontend build is validated.** The plugin was compiled into a real
+Superset 6.0.0 frontend production build (`npm ci` + drop the pre-built plugin
+into `node_modules/@rfc` + register in `MainPreset` + `npm run build`): webpack
+exited 0 and the emitted bundle contains `git_lane_graph` (the `viz_type`) and
+the "Git Commit DAG (lanes)" chart metadata. It also type-checks clean against
+`@superset-ui/core` + `@superset-ui/chart-controls` (`tsc --noEmit`).
+
+**Still not automated:** none of this runs in CI (which is Python-only — see
+`.github/workflows/ci.yml`), and the **Docker image build** in
+`Dockerfile.gitlane` (which packages the validated recipe) has not itself been
+run end-to-end here. So: the plugin code and the frontend build recipe are
+proven; the containerised image build is the remaining unrun step.
+
+> Gotcha the build surfaced, encoded in `Dockerfile.gitlane`: do **not** add the
+> plugin as a workspace / `file:` dependency and re-run `npm install` — that
+> re-resolves Superset's pinned lockfile and drops optional deps (deck.gl,
+> react-spring, …). Use pristine `npm ci`, then drop the pre-built plugin into
+> `node_modules/@rfc`.
 
 ### Building the custom image
 
