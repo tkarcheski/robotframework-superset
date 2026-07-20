@@ -32,7 +32,7 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
       - name: Install
-        run: pip install -e ".[dev]"
+        run: pip install -e ".[dev,db]"
       - name: Lint
         run: ruff check src tests infra
       - name: Type check
